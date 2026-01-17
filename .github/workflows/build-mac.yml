@@ -32,8 +32,13 @@ jobs:
             --name PolymarketBot \
             uso.py
 
+      - name: Zip macOS app correctly
+        run: |
+          cd dist
+          ditto -c -k --sequesterRsrc --keepParent PolymarketBot.app PolymarketBot.app.zip
+
       - name: Upload macOS app
         uses: actions/upload-artifact@v4
         with:
           name: PolymarketBot-mac
-          path: dist/PolymarketBot.app
+          path: dist/PolymarketBot.app.zip
