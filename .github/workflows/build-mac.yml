@@ -1,0 +1,38 @@
+name: Build macOS App
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+
+    steps:
+    - name: Checkout repo
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pyinstaller
+
+    - name: Build with PyInstaller
+      run: |
+        pyinstaller \
+          --onefile \
+          --name PolymarketBot \
+          uso.py
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: PolymarketBot-mac
+        path: dist/PolymarketBot
