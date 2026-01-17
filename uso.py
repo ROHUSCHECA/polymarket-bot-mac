@@ -37,7 +37,7 @@ class Config:
     LOOKAHEAD_HOURS = 1.5
     
     # Nueva config para integración con MT4
-    CSV_PATH = r"C:\Users\Administrator\AppData\Roaming\MetaQuotes\Terminal\17B5FF217FE004B792EFA9D824B75EEC\MQL4\Files\Sinal.csv"  # ¡Cambia esto al path real del CSV de MT4!
+    CSV_PATH = r"C:\Program Files (x86)\MetaTrader 4\MQL4\Files\Sinal.csv"  # ¡Cambia esto al path real del CSV de MT4!
     LAST_TIMESTAMP = 0  # Global para rastrear la última señal procesada (inicializa en 0)
 
 # ==================== CLASE ====================
@@ -689,4 +689,5 @@ def main_menu():
 
 
 if __name__ == "__main__":
+
     main_menu()
