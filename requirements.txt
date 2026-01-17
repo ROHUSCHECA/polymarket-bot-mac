@@ -1,0 +1,10 @@
+requests
+pytz
+py-clob-client
+python-dotenv
+eth-account
+eth-utils
+httpx
+poly_eip712_structs
+py-builder-signing-sdk
+py-order-utils
