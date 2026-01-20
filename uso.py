@@ -31,14 +31,49 @@ class Config:
     
     AUTO_SWITCH_ENABLED = True
     MONITOR_INTERVAL_SEC = 5
-    CACHE_REFRESH_SEC = 60  # ✅ AGREGADO: Faltaba esta constante
+    CACHE_REFRESH_SEC = 60
     SERIES_PATTERN = "btc-updown-15m-"
     LOOKBACK_HOURS = 2
     LOOKAHEAD_HOURS = 1.5
     
     # Nueva config para integración con MT4
-    CSV_PATH = r"C:\Program Files (x86)\MetaTrader 4\MQL4\Files\Sinal.csv"  # ¡Cambia esto al path real del CSV de MT4!
+    CSV_PATH = None  # Se buscará automáticamente
     LAST_TIMESTAMP = 0  # Global para rastrear la última señal procesada (inicializa en 0)
+    
+    @staticmethod
+    def find_mt4_csv():
+        """Busca automáticamente el archivo Sinal.csv en ubicaciones comunes de MT4 en Mac"""
+        import glob
+        import os.path
+        
+        home = os.path.expanduser("~")
+        possible_paths = [
+            # Desktop (si se configuró manualmente)
+            f"{home}/Desktop/Sinal.csv",
+            # MetaQuotes Wine (detectado en tu Mac)
+            f"{home}/Library/Application Support/net.metaquotes.wine.metatrader4/drive_c/Program Files*/MetaTrader*/MQL4/Files/Sinal.csv",
+            # PlayOnMac
+            f"{home}/Library/PlayOnMac/wineprefix/*/drive_c/Program Files*/MetaTrader*/MQL4/Files/Sinal.csv",
+            # Wine genérico
+            f"{home}/.wine/drive_c/Program Files*/MetaTrader*/MQL4/Files/Sinal.csv",
+            # Crossover
+            f"{home}/Library/Application Support/CrossOver/Bottles/*/drive_c/Program Files*/MetaTrader*/MQL4/Files/Sinal.csv",
+        ]
+        
+        for pattern in possible_paths:
+            matches = glob.glob(pattern)
+            if matches:
+                print(f"✅ Archivo MT4 encontrado: {matches[0]}")
+                return matches[0]
+        
+        # Si no encuentra Sinal.csv pero encuentra la carpeta Files, usar esa ruta
+        files_dir = f"{home}/Library/Application Support/net.metaquotes.wine.metatrader4/drive_c/Program Files (x86)/MetaTrader 4/MQL4/Files"
+        if os.path.exists(files_dir):
+            csv_path = os.path.join(files_dir, "Sinal.csv")
+            print(f"📁 Carpeta MT4 encontrada, usando: {csv_path}")
+            return csv_path
+        
+        return None
 
 # ==================== CLASE ====================
 class PolymarketTrader:
@@ -51,6 +86,24 @@ class PolymarketTrader:
         self.cache_time = 0
         self.upcoming = []
         self.trade_amount = 1.0  # Monto predeterminado para trades automáticos
+        
+        # Buscar archivo CSV automáticamente si no está configurado
+        if Config.CSV_PATH is None:
+            print("\n🔍 Buscando archivo Sinal.csv en ubicaciones comunes de MT4...")
+            found_path = Config.find_mt4_csv()
+            if found_path:
+                Config.CSV_PATH = found_path
+            else:
+                print("⚠️ No se encontró Sinal.csv automáticamente")
+                manual_path = input("Ingresa la ruta completa del archivo Sinal.csv (o Enter para omitir): ").strip()
+                if manual_path and os.path.exists(manual_path):
+                    Config.CSV_PATH = manual_path
+                    print(f"✅ Ruta configurada: {Config.CSV_PATH}")
+                else:
+                    Config.CSV_PATH = os.path.expanduser("~/Desktop/Sinal.csv")
+                    print(f"⚠️ Usando ruta por defecto: {Config.CSV_PATH}")
+                    print("💡 El archivo se creará cuando MT4 genere una señal")
+        
         self.authenticate()
     
     def authenticate(self):
@@ -161,6 +214,26 @@ class PolymarketTrader:
             # Silencioso para no saturar logs
             return None
     
+    def parse_datetime_safe(self, date_str):
+        """
+        Parsea datetime de forma segura manejando microsegundos mal formateados
+        """
+        try:
+            cleaned_str = date_str.replace('Z', '+00:00')
+            
+            if '.' in cleaned_str:
+                parts = cleaned_str.split('.')
+                if len(parts) == 2:
+                    base = parts[0]
+                    if '+' in parts[1]:
+                        micro_part, tz_part = parts[1].split('+')
+                        micro_normalized = micro_part[:6].ljust(6, '0')
+                        cleaned_str = f"{base}.{micro_normalized}+{tz_part}"
+            
+            return datetime.fromisoformat(cleaned_str)
+        except Exception as e:
+            raise ValueError(f"No se pudo parsear fecha: {date_str}") from e
+    
     def get_next_active_market(self):
         """
         Encuentra el siguiente mercado activo
@@ -182,7 +255,8 @@ class PolymarketTrader:
                 if not end_str: 
                     continue
                 
-                end_dt = datetime.fromisoformat(end_str.replace('Z', '+00:00'))
+                # Usa la función segura de parsing
+                end_dt = self.parse_datetime_safe(end_str)
                 to_end = (end_dt - now).total_seconds()
                 
                 # Ignora mercados que cierran en <30 seg
@@ -190,7 +264,7 @@ class PolymarketTrader:
                     continue
                 
                 start_str = m.get('startDate') or m.get('eventStartTime') or end_str
-                start_dt = datetime.fromisoformat(start_str.replace('Z', '+00:00'))
+                start_dt = self.parse_datetime_safe(start_str)
                 to_start = (start_dt - now).total_seconds()
                 
                 # Acepta mercados que empiezan en <20 min Y cierran en >30 seg
@@ -201,7 +275,7 @@ class PolymarketTrader:
                         'to_start': to_start
                     })
             except Exception as e:
-                print(f"⚠️ Error procesando mercado: {e}")
+                # Silencioso para no saturar logs
                 continue
         
         # Ordena por tiempo de cierre (menor primero)
@@ -223,7 +297,7 @@ class PolymarketTrader:
             return True
         try:
             end_str = self.selected_market.get('endDate')
-            end_dt = datetime.fromisoformat(end_str.replace('Z', '+00:00'))
+            end_dt = self.parse_datetime_safe(end_str)
             secs_left = (end_dt - datetime.now(timezone.utc)).total_seconds()
             return secs_left < 120
         except:
@@ -268,7 +342,7 @@ class PolymarketTrader:
         bog_tz = pytz.timezone('America/Bogota')
         
         try:
-            end_dt = datetime.fromisoformat(end_str.replace('Z', '+00:00'))
+            end_dt = self.parse_datetime_safe(end_str)
             end_bog = end_dt.astimezone(bog_tz).strftime("%I:%M %p %Z - %d %b")
             urgency_marker = '⚠️ Muy pronto' if urgent else '✅ Activo'
             print(f"Cierre: {timer} ({urgency_marker}) → {end_bog}")
@@ -325,7 +399,22 @@ class PolymarketTrader:
         Retorna: (timer_str, is_urgent)
         """
         try:
-            end = datetime.fromisoformat(end_str.replace('Z', '+00:00'))
+            # Limpia el string de fecha para manejar microsegundos mal formateados
+            cleaned_str = end_str.replace('Z', '+00:00')
+            
+            # Si tiene punto decimal, normaliza los microsegundos a 6 dígitos
+            if '.' in cleaned_str:
+                parts = cleaned_str.split('.')
+                if len(parts) == 2:
+                    base = parts[0]
+                    # Separa microsegundos del timezone
+                    if '+' in parts[1]:
+                        micro_part, tz_part = parts[1].split('+')
+                        # Normaliza a 6 dígitos (rellena con 0s o trunca)
+                        micro_normalized = micro_part[:6].ljust(6, '0')
+                        cleaned_str = f"{base}.{micro_normalized}+{tz_part}"
+            
+            end = datetime.fromisoformat(cleaned_str)
             rem = end - datetime.now(timezone.utc)
             
             if rem.total_seconds() <= 0:
@@ -333,7 +422,8 @@ class PolymarketTrader:
             
             mins = int(rem.total_seconds() // 60)
             return f"{mins}m", rem.total_seconds() < 300  # Urgente si <5 min
-        except:
+        except Exception as e:
+            print(f"⚠️ Error parseando fecha: {e}")
             return "??:??", False
     
     def check_mt4_signals(self):
@@ -348,7 +438,16 @@ class PolymarketTrader:
         global Config  # Para actualizar LAST_TIMESTAMP
         
         if not os.path.exists(Config.CSV_PATH):
-            print("❌ CSV de MT4 no encontrado en:", Config.CSV_PATH)
+            print(f"❌ CSV de MT4 no encontrado en: {Config.CSV_PATH}")
+            print(f"💡 Directorio actual: {os.getcwd()}")
+            print(f"💡 Ruta absoluta buscada: {os.path.abspath(Config.CSV_PATH)}")
+            
+            # Sugerencia: buscar archivos CSV cercanos
+            desktop_path = os.path.expanduser("~/Desktop")
+            if os.path.exists(desktop_path):
+                csv_files = [f for f in os.listdir(desktop_path) if f.endswith('.csv')]
+                if csv_files:
+                    print(f"💡 CSVs encontrados en Desktop: {csv_files}")
             return
         
         try:
@@ -396,7 +495,7 @@ class PolymarketTrader:
     def monitor_mode(self):
         """
         Modo monitor continuo
-        - Actualiza cada 30 segundos
+        - Actualiza cada 5 segundos
         - Auto-switch cuando mercado cierra en <2 min
         - Verifica señales de MT4 en cada iteración
         - Ctrl+C para salir
@@ -405,7 +504,7 @@ class PolymarketTrader:
         print("🔍 MODO MONITOR ACTIVADO")
         print(f"⏱️ Actualiza cada {Config.MONITOR_INTERVAL_SEC}s")
         print("🔄 Auto-switch cuando cierre <2 min")
-        print("📡 Monitoreando señales de MT4 en: {Config.CSV_PATH}")
+        print(f"📡 Monitoreando señales de MT4 en: {Config.CSV_PATH}")
         print(f"💰 Monto por trade: ${self.trade_amount}")
         print("⌨️ Ctrl+C para salir")
         print("="*90)
@@ -689,5 +788,4 @@ def main_menu():
 
 
 if __name__ == "__main__":
-
     main_menu()
