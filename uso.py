@@ -25,8 +25,8 @@ class Config:
     CLOB_API = "https://clob.polymarket.com"
     CHAIN_ID = 137
     
-    PRIVATE_KEY = "0xec151efd6f10e1de1d3ba58adc2b92a2133e24484a92e12a5d99145c9e3ef834"
-    FUNDER_ADDRESS = "0x3576B9f96046171012A33F59aa7349e36a26270D"
+    PRIVATE_KEY = ""
+    FUNDER_ADDRESS = ""
     SIGNATURE_TYPE = 1
     
     AUTO_SWITCH_ENABLED = True
@@ -789,3 +789,4 @@ def main_menu():
 
 if __name__ == "__main__":
     main_menu()
+
